@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { useAuth } from "./context/AuthContext";
 import { Header } from "./components/layout/Header";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -55,6 +56,7 @@ export default function App() {
           isOpen={isAuthModalOpen}
           onClose={() => setIsAuthModalOpen(false)}
         />
+        <SpeedInsights />
       </>
     );
   }
@@ -163,6 +165,9 @@ export default function App() {
         isOpen={!isOnboarded}
         onClose={() => {}}
       />
+
+      {/* Vercel Speed Insights */}
+      <SpeedInsights />
     </div>
   );
 }
