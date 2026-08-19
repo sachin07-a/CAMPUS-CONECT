@@ -8,6 +8,7 @@ import { NotificationDrawer } from "./components/layout/NotificationDrawer";
 import { AuthModal } from "./components/auth/AuthModal";
 import { OnboardingModal } from "./components/auth/OnboardingModal";
 import { NoteUploadModal } from "./components/notes/NoteUploadModal";
+import { CampusAIAssistant } from "./components/ai/CampusAIAssistant";
 
 // Views
 import { LandingPage } from "./components/landing/LandingPage";
@@ -47,7 +48,6 @@ export default function App() {
         <LandingPage
           onGetStarted={() => setIsAuthModalOpen(true)}
           onExploreDemo={() => {
-            // Log in as student for instant demo exploration
             setIsAuthModalOpen(true);
           }}
         />
@@ -134,6 +134,9 @@ export default function App() {
         onNavigate={handleNavigate}
         onOpenUploadNote={() => setIsUploadNoteOpen(true)}
       />
+
+      {/* Floating CampusAI Study Assistant */}
+      <CampusAIAssistant />
 
       {/* Global Search Modal (Ctrl+K) */}
       <GlobalSearchModal
