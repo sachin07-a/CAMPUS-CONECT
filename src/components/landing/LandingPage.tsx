@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Logo } from "../common/Logo";
 import { Button } from "../common/Button";
 import { Badge } from "../common/Badge";
+import { PromoVideoModal } from "../promo/PromoVideoModal";
 import {
   BookOpen,
   Megaphone,
@@ -18,7 +19,8 @@ import {
   ChevronDown,
   Layers,
   Zap,
-  Globe
+  Globe,
+  Play
 } from "lucide-react";
 
 interface LandingPageProps {
@@ -31,6 +33,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onExploreDemo
 }) => {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [isPromoOpen, setIsPromoOpen] = useState<boolean>(false);
 
   const faqs = [
     {
@@ -62,6 +65,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5">
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<Play className="w-3.5 h-3.5 fill-current text-pink-500" />}
+              onClick={() => setIsPromoOpen(true)}
+              className="hidden sm:inline-flex"
+            >
+              Watch Trailer
+            </Button>
             <Button variant="ghost" size="sm" onClick={onGetStarted}>
               Sign In
             </Button>
@@ -102,10 +114,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <Button
               variant="outline"
               size="lg"
-              onClick={onExploreDemo}
+              leftIcon={<Play className="w-4 h-4 text-pink-500 fill-pink-500" />}
+              onClick={() => setIsPromoOpen(true)}
               className="w-full sm:w-auto font-bold"
             >
-              Explore Live Demo
+              Watch Video Trailer
             </Button>
           </div>
 
@@ -241,6 +254,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </footer>
+
+      {/* Promotional Video Ad Player Modal */}
+      <PromoVideoModal
+        isOpen={isPromoOpen}
+        onClose={() => setIsPromoOpen(false)}
+      />
     </div>
   );
 };
