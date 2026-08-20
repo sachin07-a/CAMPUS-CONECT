@@ -1,11 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Modal } from "../common/Modal";
 import { Button } from "../common/Button";
 import { useAuth } from "../../context/AuthContext";
 import { useData } from "../../context/DataContext";
 import { BRANCHES, SUBJECTS } from "../../data/academicStructure";
 import { NoteFileType } from "../../types";
-import { UploadCloud, FileText, CheckCircle2, ArrowRight, ArrowLeft, Sparkles } from "lucide-react";
+import { StorageService } from "../../services/storageService";
+import { UploadCloud, FileText, CheckCircle2, ArrowRight, ArrowLeft, Sparkles, FolderOpen } from "lucide-react";
 
 interface NoteUploadModalProps {
   isOpen: boolean;
@@ -19,12 +20,11 @@ export const NoteUploadModal: React.FC<NoteUploadModalProps> = ({
   const { currentUser } = useAuth();
   const { addNote } = useData();
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [step, setStep] = useState<number>(1);
-  const [file, setFile] = useState<{ name: string; size: string; type: NoteFileType } | null>({
-    name: "Data_Structures_Unit_3_Lecture_Notes.pdf",
-    size: "4.2 MB",
-    type: "pdf"
-  });
+  const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
+  const [file, setFile] = useState<{ name: string; size: string; type: NoteFileType; url?: string } | null>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -33,7 +33,7 @@ export const NoteUploadModal: React.FC<NoteUploadModalProps> = ({
   const [subjectId, setSubjectId] = useState("cs301");
   const [unitNumber, setUnitNumber] = useState(1);
   const [topic, setTopic] = useState("");
-  const [tagsInput, setTagsInput] = useState("AVL Trees, Rotations, Exam Prep");
+  const [tagsInput, setTagsInput] = useState("Notes, Syllabus, Exam Prep");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -46,73 +46,127 @@ export const NoteUploadModal: React.FC<NoteUploadModalProps> = ({
 
   const currentSubject = availableSubjects.find(s => s.id === subjectId) || availableSubjects[0] || SUBJECTS[0];
 
-  const handleFileDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const f = e.dataTransfer.files[0];
-      const ext = f.name.split(".").pop()?.toLowerCase();
-      const validTypes: Record<string, NoteFileType> = { pdf: "pdf", ppt: "pptx", pptx: "pptx", doc: "docx", docx: "docx", zip: "zip" };
-      setFile({
-        name: f.name,
-        size: `${(f.size / (1024 * 1024)).toFixed(1)} MB`,
-        type: validTypes[ext || "pdf"] || "pdf"
-      });
-      if (!title) {
-        setTitle(f.name.replace(/\.[^/.]+$/, "").replace(/_/g, " "));
-      }
+  const processFile = (rawFile: File) => {
+    setSelectedFileObj(rawFile);
+    const ext = rawFile.name.split(".").pop()?.toLowerCase() || "pdf";
+    const validTypes: Record<string, NoteFileType> = {
+      pdf: "pdf",
+      ppt: "pptx",
+      pptx: "pptx",
+      doc: "docx",
+      docx: "docx",
+      zip: "zip"
+    };
+
+    const sizeInMB = rawFile.size / (1024 * 1024);
+    const formattedSize = sizeInMB >= 1 ? `${sizeInMB.toFixed(1)} MB` : `${Math.round(rawFile.size / 1024)} KB`;
+    const objectUrl = URL.createObjectURL(rawFile);
+
+    setFile({
+      name: rawFile.name,
+      size: formattedSize,
+      type: validTypes[ext] || "pdf",
+      url: objectUrl
+    });
+
+    if (!title) {
+      const cleanTitle = rawFile.name
+        .replace(/\.[^/.]+$/, "")
+        .replace(/[-_]/g, " ")
+        .replace(/\b\w/g, c => c.toUpperCase());
+      setTitle(cleanTitle);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      processFile(e.target.files[0]);
+    }
+  };
+
+  const handleBrowseClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     const tags = tagsInput.split(",").map(t => t.trim()).filter(Boolean);
     const branchObj = BRANCHES.find(b => b.id === branch) || BRANCHES[0];
 
-    setTimeout(() => {
-      addNote({
-        title: title || `${currentSubject?.name || "Subject"} Unit ${unitNumber} Notes`,
-        description: description || `Comprehensive handwritten and structured notes covering unit ${unitNumber} topics.`,
-        branchId: branch,
-        branchName: branchObj.name,
-        semester: Number(semester),
-        subjectId: currentSubject?.id || "cs301",
-        subjectName: currentSubject?.name || "Core Subject",
-        unitNumber: Number(unitNumber),
-        topic: topic || `Unit ${unitNumber} Syllabus Coverage`,
-        tags: tags.length > 0 ? tags : ["Notes", "Syllabus"],
-        fileUrl: "#",
-        fileType: file?.type || "pdf",
-        fileSize: file?.size || "3.5 MB",
-        uploaderId: currentUser?.id || "usr_student_1",
-        uploaderName: currentUser?.name || "Student",
-        uploaderRole: currentUser?.role || "student",
-        uploaderAvatar: currentUser?.avatar,
-        status: currentUser?.role === "faculty" || currentUser?.role === "admin" ? "approved" : "pending"
-      });
+    let uploadedUrl = file?.url || "#";
 
-      setIsSubmitting(false);
-      setIsSubmitted(true);
-    }, 800);
+    // If a real file is attached, try upload through storage service
+    if (selectedFileObj) {
+      try {
+        const uploadResult = await StorageService.uploadNoteFile(selectedFileObj);
+        uploadedUrl = uploadResult.url;
+      } catch (err) {
+        console.warn("Using local object url fallback:", err);
+      }
+    }
+
+    addNote({
+      title: title || `${currentSubject?.name || "Subject"} Unit ${unitNumber} Notes`,
+      description: description || `Comprehensive handwritten and structured notes covering unit ${unitNumber} topics.`,
+      branchId: branch,
+      branchName: branchObj.name,
+      semester: Number(semester),
+      subjectId: currentSubject?.id || "cs301",
+      subjectName: currentSubject?.name || "Core Subject",
+      unitNumber: Number(unitNumber),
+      topic: topic || `Unit ${unitNumber} Syllabus Coverage`,
+      tags: tags.length > 0 ? tags : ["Notes", "Syllabus"],
+      fileUrl: uploadedUrl,
+      fileType: file?.type || "pdf",
+      fileSize: file?.size || "3.5 MB",
+      uploaderId: currentUser?.id || "usr_student_1",
+      uploaderName: currentUser?.name || "Student",
+      uploaderRole: currentUser?.role || "student",
+      uploaderAvatar: currentUser?.avatar,
+      status: currentUser?.role === "faculty" || currentUser?.role === "admin" ? "approved" : "pending"
+    });
+
+    setIsSubmitting(false);
+    setIsSubmitted(true);
   };
 
   const handleClose = () => {
     setStep(1);
     setIsSubmitted(false);
+    setSelectedFileObj(null);
+    setFile(null);
+    setTitle("");
     onClose();
   };
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} size="lg">
       <div className="p-1">
+        {/* Hidden File Input connected to user's device */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.ppt,.pptx,.doc,.docx,.zip"
+          onChange={handleFileInputChange}
+          className="hidden"
+        />
+
         <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h3 className="text-lg font-bold text-slate-900 dark:text-white">
               Upload Study Resource
             </h3>
             <p className="text-xs text-slate-500">
-              Share lecture notes, question banks, or slides with your campus
+              Share lecture notes, question banks, or slides from your device
             </p>
           </div>
           <span className="text-xs font-bold text-brand-royalblue bg-blue-50 dark:bg-blue-950 px-2.5 py-1 rounded-full">
@@ -133,7 +187,7 @@ export const NoteUploadModal: React.FC<NoteUploadModalProps> = ({
             <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
               {currentUser?.role === "faculty" || currentUser?.role === "admin"
                 ? "Your notes are now live in the verified academic repository for all students."
-                : "Your submission has been queued for faculty/admin review to ensure academic quality."}
+                : "Your submission has been queued in the Admin Moderation Queue for verification."}
             </p>
             <div className="pt-4">
               <Button variant="primary" onClick={handleClose}>
@@ -145,42 +199,61 @@ export const NoteUploadModal: React.FC<NoteUploadModalProps> = ({
           <div>
             {step === 1 && (
               <div className="space-y-4 animate-in fade-in">
+                {/* Drag and Drop & Native File Browser Card */}
                 <div
                   onDragOver={e => e.preventDefault()}
                   onDrop={handleFileDrop}
-                  className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-brand-royalblue rounded-2xl p-8 text-center bg-slate-50/50 dark:bg-slate-800/30 transition-colors cursor-pointer"
-                  onClick={() => {
-                    setFile({ name: "Algorithm_Unit2_MasterNotes.pdf", size: "3.8 MB", type: "pdf" });
-                    setTitle("Algorithm Analysis & Recurrence Relations Master Notes");
-                  }}
+                  onClick={handleBrowseClick}
+                  className="border-2 border-dashed border-brand-royalblue/40 hover:border-brand-royalblue rounded-2xl p-8 text-center bg-blue-50/20 dark:bg-slate-800/40 hover:bg-blue-50/40 dark:hover:bg-slate-800/60 transition-all cursor-pointer group"
                 >
-                  <div className="p-3 rounded-2xl bg-brand-royalblue/10 text-brand-royalblue dark:text-blue-400 w-12 h-12 flex items-center justify-center mx-auto mb-3">
-                    <UploadCloud className="w-6 h-6" />
+                  <div className="p-3.5 rounded-2xl bg-brand-royalblue/10 text-brand-royalblue dark:text-blue-400 w-14 h-14 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                    <UploadCloud className="w-7 h-7" />
                   </div>
                   <p className="text-sm font-bold text-slate-800 dark:text-white">
-                    Drag and drop your file here, or <span className="text-brand-royalblue underline">browse</span>
+                    Click to browse files from your computer, or drag & drop here
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Supports PDF, PPT, PPTX, DOCX, ZIP (Up to 50MB)
+                    Supports PDF, PPTX, DOCX, ZIP (Up to 50MB)
                   </p>
+
+                  <div className="pt-4 flex justify-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      leftIcon={<FolderOpen className="w-4 h-4" />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleBrowseClick();
+                      }}
+                    >
+                      Choose File from Device
+                    </Button>
+                  </div>
                 </div>
 
-                {file && (
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs">
-                    <div className="flex items-center gap-2.5">
-                      <FileText className="w-5 h-5 text-brand-royalblue" />
-                      <div>
-                        <p className="font-bold text-slate-800 dark:text-slate-100">{file.name}</p>
+                {/* Selected File Details */}
+                {file ? (
+                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 text-xs animate-in fade-in">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <FileText className="w-5 h-5 text-teal-600 shrink-0" />
+                      <div className="truncate">
+                        <p className="font-bold text-slate-800 dark:text-slate-100 truncate">{file.name}</p>
                         <p className="text-[10px] text-slate-500 uppercase">{file.type} • {file.size}</p>
                       </div>
                     </div>
-                    <span className="text-teal-600 font-bold">Ready</span>
+                    <span className="text-teal-600 font-bold shrink-0 ml-2">✓ Selected</span>
                   </div>
+                ) : (
+                  <p className="text-center text-xs text-slate-400">
+                    No file selected yet. Click the box above to choose a document from your computer.
+                  </p>
                 )}
 
-                <div className="flex justify-end pt-4">
+                <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
                   <Button
                     variant="primary"
+                    disabled={!file}
                     rightIcon={<ArrowRight className="w-4 h-4" />}
                     onClick={() => setStep(2)}
                   >
@@ -313,7 +386,7 @@ export const NoteUploadModal: React.FC<NoteUploadModalProps> = ({
                     Topic: {topic || `Unit ${unitNumber} Comprehensive Coverage`}
                   </p>
                   <div className="flex items-center gap-2 pt-2 text-[11px] text-slate-400">
-                    <span>Uploader: {currentUser?.name} ({currentUser?.role})</span>
+                    <span>Selected File: <strong>{file?.name}</strong></span>
                   </div>
                 </div>
 
